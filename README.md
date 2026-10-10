@@ -10,22 +10,33 @@ n8n and Node-RED — with a **real workflow execution engine**, not a mockup.
 ## Features
 
 - **Visual node editor** — drag nodes from the palette, connect typed ports,
-  move/select/duplicate/delete, zoom/pan/fit, minimap, grid snapping.
+  move/select/duplicate/delete, zoom/pan/fit, minimap, grid snapping,
+  auto-layout, align tools, copy/paste, arrow-key nudging.
 - **Real execution engine** — topological ordering, cycle detection, typed port
   validation, conditional branching, multi-input gating, per-node status,
-  ordered execution log, abort/reset. Independent of React; fully unit-tested.
-- **7 functional node types** — Text/Number Input, Text Transform, Math
-  Transform, Condition (branching), Merge Text, Output.
+  ordered execution log, abort/reset, run timeout guard. Async node support.
+  Independent of React; fully unit-tested.
+- **15 functional node types** — Text/Number Input, Text Transform, Math
+  Transform, Condition (branching), Switch (3-way routing), Merge Text,
+  Template (string interpolation), JSON (parse/stringify), HTTP Request (real
+  fetch), Delay (abort-aware), Random, Date & Time, Note (annotation), Output.
 - **Validated connections** — incompatible types can't connect (by drag *or*
-  via the accessible Connect dialog); would-be cycles are rejected up front.
-- **Undo/redo** with keyboard shortcuts.
-- **Persistence** — autosave to IndexedDB, multiple named workflows,
-  rename/duplicate/delete, JSON export/import with runtime validation and
+  via the accessible Connect dialog); would-be cycles are rejected up front;
+  compatible ports highlight while dragging.
+- **Live run feedback** — progress counter, transmitted values shown on edges,
+  per-node timing in the log.
+- **Undo/redo** with keyboard shortcuts; **command palette** (Ctrl+K).
+- **Validation warnings** — dead-end nodes are flagged ⚠ without blocking runs.
+- **Persistence** — autosave to IndexedDB, multiple named workflows with
+  descriptions and search, rename/duplicate/delete, JSON export/import
+  (including drag-and-drop onto the canvas) with runtime validation and
   corrupted-data recovery, versioned schema with tested migrations.
-- **3 built-in example workflows** ready to run.
-- **Dark/light themes**, responsive layout, keyboard shortcuts, toasts,
-  offline indicator, reduced-motion support.
-- **PWA** — installable, works fully offline after first load.
+- **Run history** — last 10 runs per workflow with duration and outcome;
+  execution log with level/text filters and JSON export.
+- **6 built-in example workflows** ready to run.
+- **Dark/light themes**, category color accents, responsive layout, keyboard
+  shortcuts, toasts, offline indicator, reduced-motion support.
+- **PWA** — installable (with install prompt), works fully offline after first load.
 
 ## Quick start
 

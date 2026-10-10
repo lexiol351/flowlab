@@ -36,6 +36,12 @@ export interface ExecutionResult {
   log: LogEntry[];
   hasErrors: boolean;
   aborted: boolean;
+  /** True when the run was stopped by the execution timeout. */
+  timedOut: boolean;
+  /** Wall-clock duration of the whole run in milliseconds. */
+  totalDurationMs: number;
+  /** Values transmitted over edges, keyed by edge id (only for taken edges). */
+  edgeValues: Record<string, PortValue>;
 }
 
 export interface ValidationIssue {
@@ -43,6 +49,8 @@ export interface ValidationIssue {
   message: string;
   nodeId?: string;
   edgeId?: string;
+  /** Warnings don't block execution; errors do. Defaults to 'error'. */
+  severity?: 'error' | 'warning';
 }
 
 export interface ConnectCheck {
@@ -57,6 +65,11 @@ export interface ExecuteOptions {
    * finishes (result set). Used for live UI updates.
    */
   onNodeUpdate?: (nodeId: string, result: NodeRunResult | null) => void;
+  /**
+   * Maximum run duration in milliseconds. When exceeded, the run is aborted
+   * and remaining nodes are skipped. Defaults to 60_000; set to 0 to disable.
+   */
+  timeoutMs?: number;
 }
 
 export class WorkflowValidationError extends Error {
@@ -214,6 +227,25 @@ export function validateWorkflow(graph: WorkflowGraph): ValidationIssue[] {
     });
   }
 
+  // Dead ends: nodes that produce values nobody consumes. Warnings only —
+  // they don't block execution. Output and Note nodes are natural sinks.
+  const SINK_TYPES = new Set(['output', 'note']);
+  const hasOutgoing = new Set(edges.map((e) => e.source));
+  for (const node of nodes) {
+    if (!isKnownNodeType(node.type)) continue;
+    if (SINK_TYPES.has(node.type)) continue;
+    const def = getNodeDefinition(node.type);
+    if (def.outputs.length === 0) continue;
+    if (!hasOutgoing.has(node.id)) {
+      issues.push({
+        code: 'dead-end',
+        severity: 'warning',
+        message: `Node "${labelOf(node)}" produces a value that nothing consumes.`,
+        nodeId: node.id,
+      });
+    }
+  }
+
   return issues;
 }
 
@@ -227,9 +259,9 @@ function getNodeTitleSafe(node: FlowNode): string {
 
 /** Throw if the workflow graph is invalid. */
 export function assertValidWorkflow(graph: WorkflowGraph): void {
-  const issues = validateWorkflow(graph);
-  if (issues.length > 0) {
-    throw new WorkflowValidationError(issues);
+  const errors = validateWorkflow(graph).filter((i) => i.severity !== 'warning');
+  if (errors.length > 0) {
+    throw new WorkflowValidationError(errors);
   }
 }
 
@@ -481,12 +513,29 @@ export async function executeWorkflow(
 
   addLog('info', `Run started — ${graph.nodes.length} node(s), ${graph.edges.length} edge(s).`);
 
+  // Internal controller: aborted by the caller's signal or by the run timeout.
+  const controller = new AbortController();
+  if (opts.signal) {
+    if (opts.signal.aborted) controller.abort();
+    else opts.signal.addEventListener('abort', () => controller.abort(), { once: true });
+  }
   let aborted = false;
+  let timedOut = false;
+  const timeoutMs = opts.timeoutMs ?? 60_000;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  if (timeoutMs > 0) {
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      addLog('warn', `Run timed out after ${timeoutMs} ms.`);
+      controller.abort();
+    }, timeoutMs);
+  }
+  const runStartedAt = performance.now();
 
   for (const nodeId of topo.order) {
-    if (opts.signal?.aborted) {
+    if (controller.signal.aborted) {
       aborted = true;
-      addLog('warn', 'Run aborted by user.');
+      if (!timedOut) addLog('warn', 'Run aborted by user.');
       break;
     }
 
@@ -495,14 +544,22 @@ export async function executeWorkflow(
     const def = getNodeDefinition(node.type);
     const nodeLabel = labelOf(node);
 
-    // Gather required inputs.
+    // Gather inputs: required ones gate execution, optional ones are
+    // included when a live edge provides a value.
     const inputs: Record<string, PortValue> = {};
     let ready = true;
     let skipReason: string | null = null;
     for (const port of def.inputs) {
-      if (!port.required) continue;
       const edge = edgesByTargetInput.get(`${nodeId}:${port.id}`);
-      if (!edge || !activeEdges.has(edge.id)) {
+      const live = edge && activeEdges.has(edge.id);
+      if (!port.required) {
+        if (live) {
+          const value = portValues.get(`${edge.source}:${edge.sourceHandle}`);
+          if (value !== undefined) inputs[port.id] = value;
+        }
+        continue;
+      }
+      if (!live) {
         ready = false;
         skipReason = `input "${port.label}" is on an inactive branch`;
         break;
@@ -526,7 +583,11 @@ export async function executeWorkflow(
     opts.onNodeUpdate?.(nodeId, null);
     const startedAt = performance.now();
     try {
-      const produced = def.execute(inputs, node.data);
+      const produced = await def.execute(inputs, node.data, {
+        signal: controller.signal,
+        nodeId,
+        runId,
+      });
       const durationMs = performance.now() - startedAt;
       for (const [portId, value] of Object.entries(produced.outputs)) {
         portValues.set(`${nodeId}:${portId}`, value);
@@ -573,9 +634,12 @@ export async function executeWorkflow(
   const errorCount = Object.values(results).filter((r) => r.status === 'error').length;
   const skippedCount = Object.values(results).filter((r) => r.status === 'skipped').length;
   const successCount = Object.values(results).filter((r) => r.status === 'success').length;
+  if (timeoutId !== undefined) clearTimeout(timeoutId);
+  const totalDurationMs = performance.now() - runStartedAt;
+  const outcome = aborted ? (timedOut ? 'timed out' : 'aborted') : 'finished';
   addLog(
     errorCount > 0 ? 'error' : 'info',
-    `Run finished — ${successCount} succeeded, ${errorCount} failed, ${skippedCount} skipped.`,
+    `Run ${outcome} — ${successCount} succeeded, ${errorCount} failed, ${skippedCount} skipped (${Math.round(totalDurationMs)} ms).`,
   );
 
   return {
@@ -584,5 +648,13 @@ export async function executeWorkflow(
     log,
     hasErrors: errorCount > 0,
     aborted,
+    timedOut,
+    totalDurationMs,
+    edgeValues: Object.fromEntries(
+      graph.edges.flatMap((edge) => {
+        const value = portValues.get(`${edge.source}:${edge.sourceHandle}`);
+        return value === undefined ? [] : [[edge.id, value] as const];
+      }),
+    ),
   };
 }

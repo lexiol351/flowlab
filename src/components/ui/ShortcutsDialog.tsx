@@ -16,8 +16,13 @@ const SHORTCUTS: ShortcutRow[] = [
     action: 'Redo',
   },
   { keys: [['Ctrl/Cmd', 'D']], action: 'Duplicate selected nodes' },
+  { keys: [['Ctrl/Cmd', 'C']], action: 'Copy selected nodes' },
+  { keys: [['Ctrl/Cmd', 'V']], action: 'Paste nodes' },
+  { keys: [['Ctrl/Cmd', 'A']], action: 'Select all nodes' },
+  { keys: [['Ctrl/Cmd', 'K']], action: 'Command palette' },
   { keys: [['Ctrl/Cmd', 'Enter']], action: 'Run workflow' },
   { keys: [['Delete'], ['Backspace']], action: 'Delete selected nodes and connections' },
+  { keys: [['Arrow keys']], action: 'Nudge selected nodes (Shift = 10px)' },
   { keys: [['Esc']], action: 'Close dialogs / clear selection' },
 ];
 

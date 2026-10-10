@@ -237,4 +237,130 @@ test.describe('FlowLab', () => {
     await expect(page.getByTestId('flow-node')).toHaveCount(1);
     await expect(page.getByTestId('execute-button')).toBeDisabled();
   });
+test('template node builds text from placeholders', async ({ page }) => {
+  await page.getByTestId('workflows-button').click();
+  const dialog = page.getByTestId('workflows-dialog');
+  await expect(dialog).toBeVisible();
+  await dialog.getByTestId('load-example-example-mail-merge').click();
+  await expect(dialog).toBeHidden();
+  await page.getByTestId('execute-button').click();
+  await expect(page.getByTestId('node-output')).toContainText([
+    'Dear Ada Lovelace, your order #42 has shipped!',
+  ]);
+});
+
+test('switch routes to exactly one branch', async ({ page }) => {
+  await page.getByTestId('workflows-button').click();
+  const dialog = page.getByTestId('workflows-dialog');
+  await expect(dialog).toBeVisible();
+  await dialog.getByTestId('load-example-example-switchboard').click();
+  await expect(dialog).toBeHidden();
+  await page.getByTestId('execute-button').click();
+  // Input is "b" → the switch routes through case2; the other outputs are skipped.
+  const outputs = await page.getByTestId('node-output').allTextContents();
+  expect(outputs.join(' ')).toContain('case2: "b"');
+  const log = await page.getByTestId('execution-log').textContent();
+  expect(log).toContain('2 skipped');
+  expect(log).toContain('routed through the "case2" branch');
+});
+
+test('copy and paste duplicates nodes', async ({ page }) => {
+  await page
+    .locator('[data-testid="palette-item"][data-node-type="textInput"]')
+    .click();
+  await expect(page.getByTestId('flow-node')).toHaveCount(1);
+  await page.getByTestId('flow-node').click();
+  await page.keyboard.press('ControlOrMeta+c');
+  await page.keyboard.press('ControlOrMeta+v');
+  await expect(page.getByTestId('flow-node')).toHaveCount(2);
+});
+
+test('auto-layout arranges nodes in layers', async ({ page }) => {
+  await page
+    .locator('[data-testid="palette-item"][data-node-type="textInput"]')
+    .click();
+  await page
+    .locator('[data-testid="palette-item"][data-node-type="textTransform"]')
+    .click();
+  await page
+    .locator('[data-testid="palette-item"][data-node-type="output"]')
+    .click();
+  await expect(page.getByTestId('flow-node')).toHaveCount(3);
+  // Connect input → transform → output via the accessible dialog.
+  const idOf = async (type: string): Promise<string> =>
+    (await page
+      .locator(`[data-testid="flow-node"][data-node-type="${type}"]`)
+      .getAttribute('data-node-id')) as string;
+  const textInputId = await idOf('textInput');
+  const transformId = await idOf('textTransform');
+  const outputId = await idOf('output');
+  await page.getByTestId('connect-button').click();
+  await page.getByTestId('connect-source-node').selectOption(textInputId);
+  await page.getByTestId('connect-source-port').selectOption('value');
+  await page.getByTestId('connect-target-node').selectOption(transformId);
+  await page.getByTestId('connect-target-port').selectOption('in');
+  await page.getByTestId('connect-confirm').click();
+  await expect(page.getByTestId('connect-dialog')).toBeHidden();
+  await page.getByTestId('connect-button').click();
+  await page.getByTestId('connect-source-node').selectOption(transformId);
+  await page.getByTestId('connect-source-port').selectOption('out');
+  await page.getByTestId('connect-target-node').selectOption(outputId);
+  await page.getByTestId('connect-target-port').selectOption('in');
+  await page.getByTestId('connect-confirm').click();
+  await expect(page.getByTestId('connect-dialog')).toBeHidden();
+  await page.getByTestId('auto-layout-button').click();
+  await expect(
+    page.getByText('Canvas arranged automatically.'),
+  ).toBeVisible();
+  // Nodes should form left-to-right layers following the connections.
+  const boxes = await page.getByTestId('flow-node').evaluateAll((els) =>
+    els.map((el) => ({
+      type: el.getAttribute('data-node-type'),
+      x: (el as HTMLElement).getBoundingClientRect().x,
+    })),
+  );
+  const input = boxes.find((b) => b.type === 'textInput');
+  const middle = boxes.find((b) => b.type === 'textTransform');
+  const output = boxes.find((b) => b.type === 'output');
+  expect(middle!.x).toBeGreaterThan(input!.x);
+  expect(output!.x).toBeGreaterThan(middle!.x);
+});
+
+test('command palette adds a node', async ({ page }) => {
+  await page.keyboard.press('ControlOrMeta+k');
+  await expect(page.getByTestId('command-palette')).toBeVisible();
+  await page.getByTestId('command-palette-input').fill('random');
+  await page.getByTestId('command-palette-item').first().click();
+  await expect(page.getByTestId('command-palette')).toBeHidden();
+  await expect(
+    page.locator('[data-testid="flow-node"][data-node-type="random"]'),
+  ).toHaveCount(1);
+});
+
+test('dead-end nodes show a warning but can still run', async ({ page }) => {
+  await page
+    .locator('[data-testid="palette-item"][data-node-type="textInput"]')
+    .click();
+  await page
+    .locator('[data-testid="palette-item"][data-node-type="textTransform"]')
+    .click();
+  // Connect them so there are no errors; the transform's output goes nowhere
+  // → dead-end warning (non-blocking).
+  const textInputId = (await page
+    .locator('[data-testid="flow-node"][data-node-type="textInput"]')
+    .getAttribute('data-node-id')) as string;
+  const transformId = (await page
+    .locator('[data-testid="flow-node"][data-node-type="textTransform"]')
+    .getAttribute('data-node-id')) as string;
+  await page.getByTestId('connect-button').click();
+  await page.getByTestId('connect-source-node').selectOption(textInputId);
+  await page.getByTestId('connect-source-port').selectOption('value');
+  await page.getByTestId('connect-target-node').selectOption(transformId);
+  await page.getByTestId('connect-target-port').selectOption('in');
+  await page.getByTestId('connect-confirm').click();
+  await expect(page.getByTestId('connect-dialog')).toBeHidden();
+  await expect(page.getByTestId('validation-warnings')).toBeVisible();
+  // Warnings don't block the run button.
+  await expect(page.getByTestId('execute-button')).toBeEnabled();
+});
 });

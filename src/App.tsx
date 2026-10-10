@@ -12,6 +12,7 @@ import { PropertiesPanel } from './components/panels/PropertiesPanel.tsx';
 import { ExecutionLogPanel } from './components/panels/ExecutionLogPanel.tsx';
 import { WorkflowsDialog } from './components/workflows/WorkflowsDialog.tsx';
 import { ConnectDialog } from './components/dialogs/ConnectDialog.tsx';
+import { CommandPalette } from './components/ui/CommandPalette.tsx';
 
 export default function App(): JSX.Element {
   const isBootstrapping = useFlowStore((s) => s.isBootstrapping);
@@ -51,6 +52,7 @@ export default function App(): JSX.Element {
       </div>
       <WorkflowsDialog />
       <ConnectDialog />
+      <CommandPalette />
       <ShortcutsDialog />
       <Toasts />
       <StatusIndicators />

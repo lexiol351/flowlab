@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { NODE_TYPES } from './types.ts';
 import type {
   FlowNode,
+  NodeCategory,
   NodeTypeId,
   PortDataType,
   PortDef,
@@ -44,11 +45,28 @@ export interface NodeExecuteResult {
   activeOutputs?: string[];
 }
 
+export interface NodeExecuteResult {
+  outputs: Record<string, PortValue>;
+  /**
+   * For branching nodes: the output ports that actually carry a value.
+   * Defaults to all declared outputs.
+   */
+  activeOutputs?: string[];
+}
+
+/** Context passed to every node's execute function. */
+export interface NodeExecuteContext {
+  /** AbortSignal for the whole run — long-running nodes should respect it. */
+  signal: AbortSignal;
+  nodeId: string;
+  runId: string;
+}
+
 export interface NodeDefinition {
   type: NodeTypeId;
   title: string;
   description: string;
-  category: 'Input' | 'Transform' | 'Logic' | 'Output';
+  category: NodeCategory;
   /** Search keywords for the node palette. */
   keywords: string[];
   inputs: PortDef[];
@@ -63,7 +81,8 @@ export interface NodeDefinition {
   execute: (
     inputs: Record<string, PortValue>,
     config: Record<string, unknown>,
-  ) => NodeExecuteResult;
+    ctx: NodeExecuteContext,
+  ) => NodeExecuteResult | Promise<NodeExecuteResult>;
 }
 
 // ---------------------------------------------------------------------------
@@ -466,6 +485,367 @@ const outputDef: NodeDefinition = {
 };
 
 // ---------------------------------------------------------------------------
+// New node types (v2 feature set)
+// ---------------------------------------------------------------------------
+
+const switchDef: NodeDefinition = {
+  type: 'switch',
+  title: 'Switch',
+  description: 'Route the input to one of two cases or a default output.',
+  category: 'Logic',
+  keywords: ['switch', 'route', 'branch', 'case', 'match', 'multiple'],
+  inputs: [{ id: 'in', label: 'in', type: 'any', required: true }],
+  outputs: [
+    { id: 'case1', label: 'case 1', type: 'any', required: false },
+    { id: 'case2', label: 'case 2', type: 'any', required: false },
+    { id: 'default', label: 'default', type: 'any', required: false },
+  ],
+  defaultData: () => ({ mode: 'text', case1Value: '', case2Value: '' }),
+  configFields: [
+    {
+      key: 'mode',
+      label: 'Match mode',
+      kind: 'select',
+      options: [
+        { value: 'text', label: 'Text (equals)' },
+        { value: 'number', label: 'Number (equals)' },
+      ],
+    },
+    { key: 'case1Value', label: 'Case 1 matches', kind: 'text', placeholder: 'first value' },
+    { key: 'case2Value', label: 'Case 2 matches', kind: 'text', placeholder: 'second value' },
+  ],
+  configSchema: z.object({
+    mode: z.enum(['text', 'number']).default('text'),
+    case1Value: z.string().default(''),
+    case2Value: z.string().default(''),
+  }) as unknown as z.ZodType<Record<string, unknown>>,
+  summarize: (data) =>
+    `match ${JSON.stringify(data['case1Value'] ?? '')} / ${JSON.stringify(data['case2Value'] ?? '')}`,
+  execute: (inputs, data) => {
+    const config = asConfig(
+      z.object({ mode: z.enum(['text', 'number']), case1Value: z.string(), case2Value: z.string() }),
+      data,
+      'Switch',
+    );
+    const value = inputs['in'];
+    if (value === undefined) throw new NodeExecutionError('Switch received no input value.');
+    const matches = (expected: string): boolean => {
+      if (config.mode === 'number') {
+        const num = typeof value === 'number' ? value : Number(value);
+        const exp = Number(expected);
+        return !Number.isNaN(num) && !Number.isNaN(exp) && num === exp;
+      }
+      return String(value) === expected;
+    };
+    const branch = matches(config.case1Value)
+      ? 'case1'
+      : matches(config.case2Value)
+        ? 'case2'
+        : 'default';
+    return { outputs: { [branch]: value }, activeOutputs: [branch] };
+  },
+};
+
+const templateDef: NodeDefinition = {
+  type: 'template',
+  title: 'Template',
+  description: 'Build text from a template with {{a}} and {{b}} placeholders.',
+  category: 'Transform',
+  keywords: ['template', 'interpolate', 'format', 'string', 'mail', 'merge'],
+  inputs: [
+    { id: 'a', label: 'a', type: 'string', required: true },
+    { id: 'b', label: 'b', type: 'string', required: false },
+  ],
+  outputs: [{ id: 'out', label: 'out', type: 'string', required: false }],
+  defaultData: () => ({ template: 'Hello, {{a}}!' }),
+  configFields: [
+    {
+      key: 'template',
+      label: 'Template',
+      kind: 'textarea',
+      placeholder: 'Hello, {{a}}!',
+      helpText: 'Use {{a}} and {{b}} as placeholders.',
+    },
+  ],
+  configSchema: z.object({
+    template: z.string().default('Hello, {{a}}!'),
+  }) as unknown as z.ZodType<Record<string, unknown>>,
+  summarize: (data) => `template ${JSON.stringify(String(data['template'] ?? '').slice(0, 32))}`,
+  execute: (inputs, data) => {
+    const config = asConfig(z.object({ template: z.string() }), data, 'Template');
+    const a = requireString(inputs['a'], 'a');
+    const b = inputs['b'] === undefined ? '' : requireString(inputs['b'], 'b');
+    const out = config.template.replaceAll('{{a}}', a).replaceAll('{{b}}', b);
+    return { outputs: { out } };
+  },
+};
+
+const jsonDef: NodeDefinition = {
+  type: 'json',
+  title: 'JSON',
+  description: 'Parse a JSON string or stringify a value.',
+  category: 'Transform',
+  keywords: ['json', 'parse', 'stringify', 'object', 'serialize'],
+  inputs: [{ id: 'in', label: 'in', type: 'any', required: true }],
+  outputs: [{ id: 'out', label: 'out', type: 'any', required: false }],
+  defaultData: () => ({ mode: 'parse' }),
+  configFields: [
+    {
+      key: 'mode',
+      label: 'Mode',
+      kind: 'select',
+      options: [
+        { value: 'parse', label: 'Parse (text → value)' },
+        { value: 'stringify', label: 'Stringify (value → text)' },
+      ],
+    },
+  ],
+  configSchema: z.object({
+    mode: z.enum(['parse', 'stringify']).default('parse'),
+  }) as unknown as z.ZodType<Record<string, unknown>>,
+  summarize: (data) => (data['mode'] === 'stringify' ? 'stringify value' : 'parse JSON'),
+  execute: async (inputs, data) => {
+    const config = asConfig(z.object({ mode: z.enum(['parse', 'stringify']) }), data, 'JSON');
+    const value = inputs['in'];
+    if (value === undefined) throw new NodeExecutionError('JSON received no input value.');
+    if (config.mode === 'stringify') {
+      return { outputs: { out: JSON.stringify(value) } };
+    }
+    if (typeof value !== 'string') {
+      throw new NodeExecutionError(`Cannot parse JSON from ${describeValue(value)}.`);
+    }
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (typeof parsed !== 'string' && typeof parsed !== 'number') {
+        throw new NodeExecutionError('Parsed JSON must be a text or numeric value.');
+      }
+      return { outputs: { out: parsed } };
+    } catch (err) {
+      if (err instanceof NodeExecutionError) throw err;
+      throw new NodeExecutionError(`Invalid JSON: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  },
+};
+
+const httpRequestDef: NodeDefinition = {
+  type: 'httpRequest',
+  title: 'HTTP Request',
+  description: 'Fetch a URL and output the status code and body.',
+  category: 'Utility',
+  keywords: ['http', 'request', 'fetch', 'api', 'web', 'get', 'post', 'url'],
+  inputs: [],
+  outputs: [
+    { id: 'status', label: 'status', type: 'number', required: false },
+    { id: 'body', label: 'body', type: 'string', required: false },
+  ],
+  defaultData: () => ({ url: 'https://api.github.com/zen', method: 'GET', body: '' }),
+  configFields: [
+    { key: 'url', label: 'URL', kind: 'text', placeholder: 'https://…' },
+    {
+      key: 'method',
+      label: 'Method',
+      kind: 'select',
+      options: [
+        { value: 'GET', label: 'GET' },
+        { value: 'POST', label: 'POST' },
+        { value: 'PUT', label: 'PUT' },
+        { value: 'DELETE', label: 'DELETE' },
+      ],
+    },
+    {
+      key: 'body',
+      label: 'Request body',
+      kind: 'textarea',
+      placeholder: '{"key": "value"}',
+      helpText: 'Sent with POST and PUT requests.',
+      visibleWhen: (data) => data['method'] === 'POST' || data['method'] === 'PUT',
+    },
+  ],
+  configSchema: z.object({
+    url: z.string().url('URL must be a valid http(s) address.'),
+    method: z.enum(['GET', 'POST', 'PUT', 'DELETE']).default('GET'),
+    body: z.string().default(''),
+  }) as unknown as z.ZodType<Record<string, unknown>>,
+  summarize: (data) => `${String(data['method'] ?? 'GET')} ${String(data['url'] ?? '').slice(0, 40)}`,
+  execute: async (_inputs, data, ctx) => {
+    const config = asConfig(
+      z.object({
+        url: z.string().url(),
+        method: z.enum(['GET', 'POST', 'PUT', 'DELETE']),
+        body: z.string(),
+      }),
+      data,
+      'HTTP Request',
+    );
+    if (!/^https?:\/\//i.test(config.url)) {
+      throw new NodeExecutionError('Only http(s) URLs are allowed.');
+    }
+    let response: Response;
+    try {
+      response = await fetch(config.url, {
+        method: config.method,
+        body: config.method === 'POST' || config.method === 'PUT' ? config.body : undefined,
+        signal: ctx.signal,
+      });
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new NodeExecutionError('HTTP request was aborted.');
+      }
+      throw new NodeExecutionError(
+        `Request failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    const body = await response.text();
+    return { outputs: { status: response.status, body } };
+  },
+};
+
+const delayDef: NodeDefinition = {
+  type: 'delay',
+  title: 'Delay',
+  description: 'Wait for a duration, then pass the value through.',
+  category: 'Utility',
+  keywords: ['delay', 'wait', 'sleep', 'pause', 'timer'],
+  inputs: [{ id: 'in', label: 'in', type: 'any', required: true }],
+  outputs: [{ id: 'out', label: 'out', type: 'any', required: false }],
+  defaultData: () => ({ ms: 1000 }),
+  configFields: [
+    {
+      key: 'ms',
+      label: 'Delay (ms)',
+      kind: 'number',
+      placeholder: '1000',
+      helpText: '0 – 60000 milliseconds.',
+    },
+  ],
+  configSchema: z.object({
+    ms: z.number().int().min(0).max(60000).default(1000),
+  }) as unknown as z.ZodType<Record<string, unknown>>,
+  summarize: (data) => `wait ${String(data['ms'] ?? 1000)} ms`,
+  execute: async (inputs, data, ctx) => {
+    const config = asConfig(z.object({ ms: z.number().int().min(0).max(60000) }), data, 'Delay');
+    const value = inputs['in'];
+    if (value === undefined) throw new NodeExecutionError('Delay received no input value.');
+    if (config.ms > 0) {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          ctx.signal.removeEventListener('abort', onAbort);
+          resolve();
+        }, config.ms);
+        const onAbort = (): void => {
+          clearTimeout(timer);
+          reject(new NodeExecutionError('Delay was aborted.'));
+        };
+        ctx.signal.addEventListener('abort', onAbort, { once: true });
+      });
+    }
+    return { outputs: { out: value } };
+  },
+};
+
+const randomDef: NodeDefinition = {
+  type: 'random',
+  title: 'Random',
+  description: 'Produce a random integer in a range.',
+  category: 'Utility',
+  keywords: ['random', 'number', 'dice', 'integer', 'range'],
+  inputs: [],
+  outputs: [{ id: 'value', label: 'value', type: 'number', required: false }],
+  defaultData: () => ({ min: 1, max: 100 }),
+  configFields: [
+    { key: 'min', label: 'Min (inclusive)', kind: 'number' },
+    { key: 'max', label: 'Max (inclusive)', kind: 'number' },
+  ],
+  configSchema: z.object({
+    min: z.number().int().default(1),
+    max: z.number().int().default(100),
+  }) as unknown as z.ZodType<Record<string, unknown>>,
+  summarize: (data) => `random ${String(data['min'] ?? 1)}…${String(data['max'] ?? 100)}`,
+  execute: async (_inputs, data) => {
+    const config = asConfig(
+      z.object({ min: z.number().int(), max: z.number().int() }),
+      data,
+      'Random',
+    );
+    if (config.min > config.max) {
+      throw new NodeExecutionError(`Min (${config.min}) must not exceed max (${config.max}).`);
+    }
+    const value = Math.floor(Math.random() * (config.max - config.min + 1)) + config.min;
+    return { outputs: { value } };
+  },
+};
+
+const datetimeDef: NodeDefinition = {
+  type: 'datetime',
+  title: 'Date & Time',
+  description: 'Produce the current date/time in a chosen format.',
+  category: 'Utility',
+  keywords: ['date', 'time', 'now', 'timestamp', 'clock', 'datetime'],
+  inputs: [],
+  outputs: [{ id: 'value', label: 'value', type: 'any', required: false }],
+  defaultData: () => ({ format: 'iso' }),
+  configFields: [
+    {
+      key: 'format',
+      label: 'Format',
+      kind: 'select',
+      options: [
+        { value: 'iso', label: 'ISO 8601' },
+        { value: 'timestamp', label: 'Unix timestamp (ms)' },
+        { value: 'date', label: 'Date (YYYY-MM-DD)' },
+        { value: 'time', label: 'Time (HH:MM:SS)' },
+      ],
+    },
+  ],
+  configSchema: z.object({
+    format: z.enum(['iso', 'timestamp', 'date', 'time']).default('iso'),
+  }) as unknown as z.ZodType<Record<string, unknown>>,
+  summarize: (data) => `now (${String(data['format'] ?? 'iso')})`,
+  execute: (_inputs, data) => {
+    const config = asConfig(
+      z.object({ format: z.enum(['iso', 'timestamp', 'date', 'time']) }),
+      data,
+      'Date & Time',
+    );
+    const now = new Date();
+    switch (config.format) {
+      case 'timestamp':
+        return { outputs: { value: now.getTime() } };
+      case 'date':
+        return { outputs: { value: now.toISOString().slice(0, 10) } };
+      case 'time':
+        return { outputs: { value: now.toISOString().slice(11, 19) } };
+      default:
+        return { outputs: { value: now.toISOString() } };
+    }
+  },
+};
+
+const noteDef: NodeDefinition = {
+  type: 'note',
+  title: 'Note',
+  description: 'An annotation on the canvas. Never executes.',
+  category: 'Utility',
+  keywords: ['note', 'comment', 'annotation', 'text', 'memo', 'sticky'],
+  inputs: [],
+  outputs: [],
+  defaultData: () => ({ text: 'Double-click the label to edit…' }),
+  configFields: [
+    {
+      key: 'text',
+      label: 'Note text',
+      kind: 'textarea',
+      placeholder: 'Write an annotation…',
+    },
+  ],
+  configSchema: z.object({
+    text: z.string().default(''),
+  }) as unknown as z.ZodType<Record<string, unknown>>,
+  summarize: (data) => String(data['text'] ?? '').slice(0, 48),
+  execute: () => ({ outputs: {} }),
+};
+
+// ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
 
@@ -475,7 +855,15 @@ const DEFINITIONS: Record<NodeTypeId, NodeDefinition> = {
   textTransform: textTransformDef,
   mathTransform: mathTransformDef,
   condition: conditionDef,
+  switch: switchDef,
   mergeText: mergeTextDef,
+  template: templateDef,
+  json: jsonDef,
+  httpRequest: httpRequestDef,
+  delay: delayDef,
+  random: randomDef,
+  datetime: datetimeDef,
+  note: noteDef,
   output: outputDef,
 };
 

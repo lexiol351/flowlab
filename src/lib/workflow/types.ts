@@ -14,11 +14,30 @@ export const NODE_TYPES = [
   'textTransform',
   'mathTransform',
   'condition',
+  'switch',
   'mergeText',
+  'template',
+  'json',
+  'httpRequest',
+  'delay',
+  'random',
+  'datetime',
+  'note',
   'output',
 ] as const;
 
 export type NodeTypeId = (typeof NODE_TYPES)[number];
+
+/** Node categories shown in the palette. */
+export const NODE_CATEGORIES = [
+  'Input',
+  'Transform',
+  'Logic',
+  'Utility',
+  'Output',
+] as const;
+
+export type NodeCategory = (typeof NODE_CATEGORIES)[number];
 
 /** A value produced/consumed at runtime. */
 export type PortValue = string | number;

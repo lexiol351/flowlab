@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DragEvent } from 'react';
 import type { JSX } from 'react';
 import {
@@ -18,13 +18,16 @@ import {
 import { isKnownNodeType } from '../../lib/workflow/nodeRegistry.ts';
 import { ADD_NODE_EVENT } from '../palette/NodePalette.tsx';
 import { FlowNodeCard } from './FlowNodeCard.tsx';
+import { DragHandleContext } from './DragHandleContext.tsx';
 
 const nodeTypes: NodeTypes = { flowNode: FlowNodeCard };
+
 
 function FlowCanvasInner(): JSX.Element {
   const nodes = useFlowStore((s) => s.nodes);
   const edges = useFlowStore((s) => s.edges);
   const theme = useFlowStore((s) => s.theme);
+  const edgeValues = useFlowStore((s) => s.edgeValues);
 
   const onNodesChange = useFlowStore((s) => s.onNodesChange);
   const onEdgesChange = useFlowStore((s) => s.onEdgesChange);
@@ -32,6 +35,25 @@ function FlowCanvasInner(): JSX.Element {
   const onNodeDragStop = useFlowStore((s) => s.onNodeDragStop);
   const addNode = useFlowStore((s) => s.addNode);
   const loadExample = useFlowStore((s) => s.loadExample);
+  const importWorkflow = useFlowStore((s) => s.importWorkflow);
+  const pushToast = useFlowStore((s) => s.pushToast);
+
+  // Edges carry their last transmitted value as a label after a run (#17).
+  const edgesWithLabels = useMemo(
+    () =>
+      edges.map((edge) => {
+        const value = edgeValues[edge.id];
+        return value ? { ...edge, label: value } : edge;
+      }),
+    [edges, edgeValues],
+  );
+
+  // Track an in-progress connection drag to highlight compatible handles (#20).
+  const [dragHandle, setDragHandle] = useState<{
+    nodeId: string;
+    handleId: string | null;
+    kind: 'source' | 'target';
+  } | null>(null);
 
   const examples = useMemo(() => getExampleWorkflows(), []);
   const reactFlow = useReactFlow();
@@ -74,11 +96,22 @@ function FlowCanvasInner(): JSX.Element {
   const onDrop = useCallback(
     (event: DragEvent<HTMLDivElement>): void => {
       event.preventDefault();
+      // Dropped workflow files import directly onto the canvas (#24).
+      const files = event.dataTransfer.files;
+      if (files.length > 0) {
+        const file = files[0];
+        if (/\.json$/i.test(file.name)) {
+          void importWorkflow(file);
+          return;
+        }
+        pushToast('error', 'Only .json workflow files can be dropped here.');
+        return;
+      }
       const type = event.dataTransfer.getData('application/flowlab-node-type');
       if (!type) return;
       placeNode(type, event.clientX, event.clientY);
     },
-    [placeNode],
+    [placeNode, importWorkflow, pushToast],
   );
 
   const onDragOver = useCallback((event: DragEvent<HTMLDivElement>): void => {
@@ -88,12 +121,21 @@ function FlowCanvasInner(): JSX.Element {
 
   return (
     <div className="canvas-wrapper" data-testid="flow-canvas" ref={wrapperRef}>
+      <DragHandleContext.Provider value={dragHandle}>
       <ReactFlow
         nodes={nodes}
-        edges={edges}
+        edges={edgesWithLabels}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onConnectStart={(_event, params) =>
+          setDragHandle({
+            nodeId: params.nodeId ?? '',
+            handleId: params.handleId ?? null,
+            kind: params.handleType === 'source' ? 'source' : 'target',
+          })
+        }
+        onConnectEnd={() => setDragHandle(null)}
         onNodeDragStop={onNodeDragStop}
         nodeTypes={nodeTypes}
         onDrop={onDrop}
@@ -111,6 +153,7 @@ function FlowCanvasInner(): JSX.Element {
         <MiniMap pannable zoomable className="flow-minimap" />
         <Controls position="bottom-left" showInteractive={false} />
       </ReactFlow>
+      </DragHandleContext.Provider>
 
       {nodes.length === 0 && (
         <div className="empty-canvas" data-testid="empty-canvas">

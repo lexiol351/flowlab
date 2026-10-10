@@ -1082,3 +1082,255 @@ kbd {
     scroll-behavior: auto !important;
   }
 }
+
+/* ------------------------- v2 feature additions ------------------------- */
+
+/* Category color accents (the --cat-color var is set inline per node/item). */
+.palette-item {
+  border-left: 3px solid var(--cat-color, var(--border-strong));
+}
+
+.flow-node {
+  border-top-color: var(--cat-color, var(--border-strong));
+}
+
+.flow-node.has-warnings {
+  border-color: var(--warning);
+}
+
+/* Validation warnings badge + node warning icon. */
+.toolbar-warnings {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  border: 1px solid var(--warning);
+  border-radius: 999px;
+  padding: 2px 10px;
+  white-space: nowrap;
+}
+
+.toolbar-stats {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.run-progress {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--info);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.node-warnings {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+
+.node-warning-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--warning);
+  color: #1a1a1a;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+/* Handle compatibility highlight while dragging a connection. */
+.flow-node .react-flow__handle.port-handle-compatible {
+  background: var(--success);
+  border-color: var(--success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 30%, transparent);
+}
+
+.flow-node .react-flow__handle.port-handle-incompatible {
+  opacity: 0.35;
+}
+
+/* Edge value labels shown after a run. */
+.react-flow__edge-text {
+  font-size: 10px;
+  font-weight: 600;
+  fill: var(--text);
+}
+
+.react-flow__edge-textbg {
+  fill: var(--bg-elevated);
+  stroke: var(--border);
+}
+
+/* Toolbar dropdown menu (align tools). */
+.toolbar-menu-wrap {
+  position: relative;
+}
+
+.toolbar-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 50;
+  min-width: 190px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 4px;
+}
+
+.toolbar-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.toolbar-menu-item:hover,
+.toolbar-menu-item:focus-visible {
+  background: var(--bg-hover);
+}
+
+/* Command palette. */
+.command-palette {
+  width: min(560px, 92vw);
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.command-palette-input {
+  margin: 12px 12px 8px;
+}
+
+.command-palette-list {
+  overflow-y: auto;
+  padding: 0 8px 12px;
+}
+
+.command-palette-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.command-palette-item.is-active {
+  background: var(--bg-hover);
+}
+
+.command-palette-title {
+  font-weight: 600;
+}
+
+.command-palette-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.command-palette-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* Execution log filters. */
+.fl-log-filters {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.fl-log-levels {
+  display: flex;
+  gap: 4px;
+}
+
+.fl-log-level {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  text-transform: capitalize;
+}
+
+.fl-log-level.is-active {
+  color: var(--text);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.fl-log-search {
+  flex: 1;
+  min-width: 120px;
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+.fl-btn-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.fl-muted {
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 4px 0;
+}
+
+/* Respect reduced motion for the new animated bits. */
+@media (prefers-reduced-motion: reduce) {
+  .flow-node .react-flow__handle.port-handle-compatible {
+    box-shadow: none;
+  }
+}
+
+.fl-warning-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fl-warning-item {
+  font-size: 12px;
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
+  border-radius: 8px;
+  padding: 6px 10px;
+}

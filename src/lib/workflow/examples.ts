@@ -115,6 +115,94 @@ function smartRouter(): WorkflowV1 {
   );
 }
 
+/**
+ * Template mail-merge: build a personalized letter from two inputs.
+ * Expected output: "Dear Ada Lovelace, your order #42 has shipped!"
+ */
+function mailMerge(): WorkflowV1 {
+  return makeWorkflow(
+    'example-mail-merge',
+    'Mail Merge',
+    [
+      node('mm-name', 'textInput', 40, 80, { value: 'Ada Lovelace' }, 'Customer name'),
+      node('mm-order', 'textInput', 40, 300, { value: '#42' }, 'Order id'),
+      node(
+        'mm-template',
+        'template',
+        340,
+        170,
+        { template: 'Dear {{a}}, your order {{b}} has shipped!' },
+        'Letter',
+      ),
+      node('mm-out', 'output', 640, 170, {}, 'Letter text'),
+    ],
+    [
+      edge('mme1', 'mm-name', 'value', 'mm-template', 'a'),
+      edge('mme2', 'mm-order', 'value', 'mm-template', 'b'),
+      edge('mme3', 'mm-template', 'out', 'mm-out', 'in'),
+    ],
+  );
+}
+
+/**
+ * Three-way routing with the Switch node.
+ * Change the input to "a", "b" or anything else and re-run.
+ */
+function switchboard(): WorkflowV1 {
+  return makeWorkflow(
+    'example-switchboard',
+    'Switchboard',
+    [
+      node('sw-in', 'textInput', 40, 220, { value: 'b' }, 'Signal'),
+      node(
+        'sw-switch',
+        'switch',
+        320,
+        220,
+        { mode: 'text', case1Value: 'a', case2Value: 'b' },
+        'Dispatcher',
+      ),
+      node('sw-o1', 'output', 620, 60, {}, 'Channel A'),
+      node('sw-o2', 'output', 620, 220, {}, 'Channel B'),
+      node('sw-o3', 'output', 620, 380, {}, 'Fallback'),
+    ],
+    [
+      edge('swe1', 'sw-in', 'value', 'sw-switch', 'in'),
+      edge('swe2', 'sw-switch', 'case1', 'sw-o1', 'in'),
+      edge('swe3', 'sw-switch', 'case2', 'sw-o2', 'in'),
+      edge('swe4', 'sw-switch', 'default', 'sw-o3', 'in'),
+    ],
+  );
+}
+
+/**
+ * Live HTTP request: fetch a random piece of wisdom from the GitHub API.
+ * Requires network access.
+ */
+function apiWisdom(): WorkflowV1 {
+  return makeWorkflow(
+    'example-api-wisdom',
+    'API Wisdom',
+    [
+      node(
+        'api-req',
+        'httpRequest',
+        40,
+        120,
+        { url: 'https://api.github.com/zen', method: 'GET', body: '' },
+        'Fetch wisdom',
+      ),
+      node('api-note', 'note', 40, 340, { text: 'Needs network access. Try changing the URL!' }),
+      node('api-status', 'output', 360, 40, {}, 'Status code'),
+      node('api-body', 'output', 360, 200, {}, 'Response body'),
+    ],
+    [
+      edge('apie1', 'api-req', 'status', 'api-status', 'in'),
+      edge('apie2', 'api-req', 'body', 'api-body', 'in'),
+    ],
+  );
+}
+
 export interface ExampleWorkflow {
   id: string;
   name: string;
@@ -140,5 +228,23 @@ export const EXAMPLE_WORKFLOWS: ExampleWorkflow[] = [
     name: 'Smart Router',
     description: 'Route messages through a priority branch when they contain “urgent”.',
     build: smartRouter,
+  },
+  {
+    id: 'example-mail-merge',
+    name: 'Mail Merge',
+    description: 'Build a personalized letter with the Template node.',
+    build: mailMerge,
+  },
+  {
+    id: 'example-switchboard',
+    name: 'Switchboard',
+    description: 'Route a value to one of three channels with the Switch node.',
+    build: switchboard,
+  },
+  {
+    id: 'example-api-wisdom',
+    name: 'API Wisdom',
+    description: 'Fetch live data with the HTTP Request node (needs network).',
+    build: apiWisdom,
   },
 ];

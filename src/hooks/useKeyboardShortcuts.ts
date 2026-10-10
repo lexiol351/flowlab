@@ -22,7 +22,11 @@ function isEditableTarget(target: EventTarget | null): boolean {
  *   is a single code path through the store.
  * - Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z / Ctrl/Cmd+Y: undo / redo.
  * - Ctrl/Cmd+D: duplicate the selected nodes.
+ * - Ctrl/Cmd+C / Ctrl/Cmd+V: copy / paste the selected nodes.
+ * - Ctrl/Cmd+A: select all nodes.
  * - Ctrl/Cmd+Enter: run the workflow.
+ * - Ctrl/Cmd+K: command palette.
+ * - Arrow keys: nudge selected nodes (Shift = 10px steps).
  * - Esc: close open dialogs, otherwise clear the canvas selection.
  *
  * Shortcuts are ignored while typing in an editable field, and (except for
@@ -32,10 +36,12 @@ export function useKeyboardShortcuts(): void {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       const state = useFlowStore.getState();
-      const { shortcutsOpen, workflowsDialogOpen, connectDialogOpen } = state;
+      const { shortcutsOpen, workflowsDialogOpen, connectDialogOpen, commandPaletteOpen } = state;
 
       if (event.key === 'Escape') {
-        if (shortcutsOpen) {
+        if (commandPaletteOpen) {
+          state.setCommandPaletteOpen(false);
+        } else if (shortcutsOpen) {
           state.setShortcutsOpen(false);
         } else if (workflowsDialogOpen) {
           state.setWorkflowsDialogOpen(false);
@@ -68,6 +74,15 @@ export function useKeyboardShortcuts(): void {
       const mod = event.metaKey || event.ctrlKey;
       const key = event.key;
 
+      // The command palette handles its own keys while open.
+      if (commandPaletteOpen) return;
+
+      if (mod && (key === 'k' || key === 'K')) {
+        event.preventDefault();
+        state.setCommandPaletteOpen(true);
+        return;
+      }
+
       if (mod && (key === 'z' || key === 'Z')) {
         event.preventDefault();
         if (event.shiftKey) {
@@ -91,10 +106,44 @@ export function useKeyboardShortcuts(): void {
         return;
       }
 
+      if (mod && (key === 'c' || key === 'C')) {
+        event.preventDefault();
+        state.copySelectedNodes();
+        return;
+      }
+
+      if (mod && (key === 'v' || key === 'V')) {
+        event.preventDefault();
+        state.pasteNodes();
+        return;
+      }
+
+      if (mod && (key === 'a' || key === 'A')) {
+        event.preventDefault();
+        state.selectAllNodes();
+        return;
+      }
+
       if (mod && key === 'Enter') {
         event.preventDefault();
         void state.runWorkflow();
         return;
+      }
+
+      if (key.startsWith('Arrow')) {
+        const step = event.shiftKey ? 10 : 1;
+        const delta: Record<string, [number, number]> = {
+          ArrowLeft: [-step, 0],
+          ArrowRight: [step, 0],
+          ArrowUp: [0, -step],
+          ArrowDown: [0, step],
+        };
+        const d = delta[key];
+        if (d) {
+          event.preventDefault();
+          state.nudgeSelected(d[0], d[1]);
+          return;
+        }
       }
 
       if (key === 'Delete' || key === 'Backspace') {

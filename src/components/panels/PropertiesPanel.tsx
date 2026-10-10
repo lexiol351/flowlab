@@ -133,6 +133,7 @@ function NodePropertiesForm({ node }: { node: AppNode }): JSX.Element {
   const nodeOutputs = useFlowStore((s) => s.nodeOutputs);
   const executionLog = useFlowStore((s) => s.executionLog);
   const validationIssues = useFlowStore((s) => s.validationIssues);
+  const validationWarnings = useFlowStore((s) => s.validationWarnings);
 
   // Local draft committed on blur/Enter so typing does not spam history.
   const [labelDraft, setLabelDraft] = useState(node.data.label ?? '');
@@ -147,6 +148,7 @@ function NodePropertiesForm({ node }: { node: AppNode }): JSX.Element {
     .find((entry) => entry.nodeId === node.id && entry.level === 'error');
   const outputs = nodeOutputs[node.id];
   const nodeIssues = validationIssues.filter((issue) => issue.nodeId === node.id);
+  const nodeWarnings = validationWarnings.filter((issue) => issue.nodeId === node.id);
 
   const commitLabel = (): void => {
     if (labelDraft !== (node.data.label ?? '')) {
@@ -226,6 +228,19 @@ function NodePropertiesForm({ node }: { node: AppNode }): JSX.Element {
             {nodeIssues.map((issue, index) => (
               <li key={`${issue.code}-${index}`} className="fl-error-item">
                 {issue.message}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {nodeWarnings.length > 0 && (
+        <section aria-label="Validation warnings">
+          <h4 className="fl-section-title">Warnings</h4>
+          <ul className="fl-warning-list">
+            {nodeWarnings.map((issue, index) => (
+              <li key={`${issue.code}-${index}`} className="fl-warning-item">
+                ⚠ {issue.message}
               </li>
             ))}
           </ul>

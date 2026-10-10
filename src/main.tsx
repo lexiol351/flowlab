@@ -4,9 +4,11 @@ import { registerSW } from 'virtual:pwa-register';
 import './styles/global.css';
 import App from './App.tsx';
 import {
+  registerInstallPrompt,
   registerServiceWorkerUpdate,
   useFlowStore,
 } from './lib/store/useFlowStore.ts';
+import type { BeforeInstallPromptEvent } from './lib/store/useFlowStore.ts';
 
 // Register the service worker. `registerType: 'prompt'` means updates are
 // applied only when the user confirms via the update banner.
@@ -24,6 +26,11 @@ window.addEventListener('online', () => {
 });
 window.addEventListener('offline', () => {
   useFlowStore.getState().setOnline(false);
+});
+
+// Capture the PWA install prompt so the toolbar can offer installation.
+window.addEventListener('beforeinstallprompt', (event: Event) => {
+  registerInstallPrompt(event as BeforeInstallPromptEvent);
 });
 
 void useFlowStore.getState().bootstrap();

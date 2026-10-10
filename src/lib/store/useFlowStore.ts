@@ -78,6 +78,32 @@ export interface LastRunSummary {
   at: string;
 }
 
+/** A persisted record of a past workflow run. */
+export interface RunRecord {
+  runId: string;
+  startedAt: string;
+  nodeCount: number;
+  successCount: number;
+  errorCount: number;
+  skippedCount: number;
+  totalDurationMs: number;
+  aborted: boolean;
+  timedOut: boolean;
+}
+
+export type AlignDirection =
+  | 'left'
+  | 'right'
+  | 'top'
+  | 'bottom'
+  | 'centerH'
+  | 'centerV';
+
+export interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+}
+
 interface FlowStoreState {
   // --- workflows ---
   workflowIndex: WorkflowIndexEntry[];
@@ -96,7 +122,10 @@ interface FlowStoreState {
   canRedo: boolean;
 
   // --- validation ---
+  /** Errors block execution. */
   validationIssues: ValidationIssue[];
+  /** Non-blocking warnings (e.g. dead-end nodes). */
+  validationWarnings: ValidationIssue[];
 
   // --- execution ---
   executionPhase: ExecutionPhase;
@@ -104,6 +133,14 @@ interface FlowStoreState {
   nodeOutputs: Record<string, Record<string, PortValue>>;
   executionLog: LogEntry[];
   lastRunSummary: LastRunSummary | null;
+  /** Live progress while running; null when idle. */
+  runProgress: { done: number; total: number } | null;
+  /** Transmitted values per edge from the last run (truncated for display). */
+  edgeValues: Record<string, string>;
+  /** Persisted history of past runs for the active workflow (newest first). */
+  runHistory: RunRecord[];
+  /** Per-workflow descriptions, keyed by workflow id. */
+  workflowDescriptions: Record<string, string>;
 
   // --- ui ---
   theme: Theme;
@@ -113,6 +150,8 @@ interface FlowStoreState {
   shortcutsOpen: boolean;
   workflowsDialogOpen: boolean;
   connectDialogOpen: boolean;
+  commandPaletteOpen: boolean;
+  installPromptAvailable: boolean;
 
   // --- actions: lifecycle ---
   bootstrap: () => Promise<void>;
@@ -120,6 +159,7 @@ interface FlowStoreState {
   // --- actions: workflows ---
   createWorkflow: (name?: string) => Promise<void>;
   renameWorkflow: (id: string, name: string) => Promise<void>;
+  setWorkflowDescription: (id: string, description: string) => Promise<void>;
   duplicateWorkflow: (id: string) => Promise<void>;
   deleteWorkflow: (id: string) => Promise<void>;
   switchWorkflow: (id: string) => Promise<void>;
@@ -128,6 +168,12 @@ interface FlowStoreState {
   exportWorkflow: (id?: string) => void;
 
   // --- actions: graph editing ---
+  autoLayout: () => void;
+  copySelectedNodes: () => void;
+  pasteNodes: () => void;
+  alignSelected: (direction: AlignDirection) => void;
+  nudgeSelected: (dx: number, dy: number) => void;
+  selectAllNodes: () => void;
   onNodesChange: (changes: NodeChange<AppNode>[]) => void;
   onEdgesChange: (changes: EdgeChange<AppEdge>[]) => void;
   onConnect: (connection: Connection) => void;
@@ -146,6 +192,7 @@ interface FlowStoreState {
   runWorkflow: () => Promise<void>;
   stopWorkflow: () => void;
   resetExecution: () => void;
+  exportExecutionLog: () => void;
 
   // --- actions: ui ---
   toggleTheme: () => void;
@@ -157,6 +204,9 @@ interface FlowStoreState {
   setShortcutsOpen: (open: boolean) => void;
   setWorkflowsDialogOpen: (open: boolean) => void;
   setConnectDialogOpen: (open: boolean) => void;
+  setCommandPaletteOpen: (open: boolean) => void;
+  setInstallPromptAvailable: (available: boolean) => void;
+  installApp: () => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -170,10 +220,48 @@ let history: HistoryState<AppNode, AppEdge> = createHistory<AppNode, AppEdge>({
 let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
 let abortController: AbortController | null = null;
 let applyServiceWorkerUpdate: (() => void) | null = null;
+/** Internal clipboard for copy/paste (node ids are remapped on paste). */
+let clipboard: { nodes: AppNode[]; edges: AppEdge[] } | null = null;
+let installPromptEvent: BeforeInstallPromptEvent | null = null;
+
+const RUN_HISTORY_LIMIT = 10;
+
+async function loadRunHistory(): Promise<Record<string, RunRecord[]>> {
+  try {
+    const value = await getMeta('runHistory');
+    return (value ?? {}) as Record<string, RunRecord[]>;
+  } catch {
+    return {};
+  }
+}
+
+async function persistRunHistory(history: Record<string, RunRecord[]>): Promise<void> {
+  try {
+    await setMeta('runHistory', history);
+  } catch {
+    /* persistence is best-effort */
+  }
+}
+
+async function loadDescriptions(): Promise<Record<string, string>> {
+  try {
+    const value = await getMeta('descriptions');
+    return (value ?? {}) as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
 
 /** Called from main.tsx once the PWA registration is ready. */
 export function registerServiceWorkerUpdate(fn: () => void): void {
   applyServiceWorkerUpdate = fn;
+}
+
+/** Called from main.tsx when the browser fires beforeinstallprompt. */
+export function registerInstallPrompt(event: BeforeInstallPromptEvent): void {
+  event.preventDefault();
+  installPromptEvent = event;
+  useFlowStore.getState().setInstallPromptAvailable(true);
 }
 
 export function getExampleWorkflows(): ExampleWorkflow[] {
@@ -237,15 +325,28 @@ export const useFlowStore = create<FlowStoreState>()((set, get) => {
    * Commit a graph change: push history, revalidate, schedule autosave,
    * and clear stale execution state (results no longer match the graph).
    */
+  function splitIssues(issues: ValidationIssue[]): {
+    errors: ValidationIssue[];
+    warnings: ValidationIssue[];
+  } {
+    return {
+      errors: issues.filter((i) => i.severity !== 'warning'),
+      warnings: issues.filter((i) => i.severity === 'warning'),
+    };
+  }
+
   function commitGraph(nodes: AppNode[], edges: AppEdge[]): void {
     history = pushHistory(history, { nodes, edges });
-    const issues = validateWorkflow(appGraphToWorkflowGraph(nodes, edges));
+    const { errors, warnings } = splitIssues(
+      validateWorkflow(appGraphToWorkflowGraph(nodes, edges)),
+    );
     set({
       nodes,
       edges,
       canUndo: historyCanUndo(history),
       canRedo: historyCanRedo(history),
-      validationIssues: issues,
+      validationIssues: errors,
+      validationWarnings: warnings,
       // Execution results describe the previous graph revision.
       nodeStatuses: {},
       nodeOutputs: {},
@@ -258,7 +359,9 @@ export const useFlowStore = create<FlowStoreState>()((set, get) => {
   function loadGraphIntoEditor(workflow: WorkflowV1): void {
     const { nodes, edges } = workflowToAppGraph(workflow);
     history = createHistory({ nodes, edges });
-    const issues = validateWorkflow(appGraphToWorkflowGraph(nodes, edges));
+    const { errors, warnings } = splitIssues(
+      validateWorkflow(appGraphToWorkflowGraph(nodes, edges)),
+    );
     set({
       activeWorkflowId: workflow.id,
       activeWorkflowName: workflow.name,
@@ -268,13 +371,22 @@ export const useFlowStore = create<FlowStoreState>()((set, get) => {
       selectedNodeId: null,
       canUndo: false,
       canRedo: false,
-      validationIssues: issues,
+      validationIssues: errors,
+      validationWarnings: warnings,
       nodeStatuses: {},
       nodeOutputs: {},
       executionLog: [],
       lastRunSummary: null,
+      runProgress: null,
+      edgeValues: {},
       executionPhase: 'idle',
     });
+    void (async () => {
+      const all = await loadRunHistory();
+      if (get().activeWorkflowId === workflow.id) {
+        set({ runHistory: all[workflow.id] ?? [] });
+      }
+    })();
   }
 
   return {
@@ -290,6 +402,13 @@ export const useFlowStore = create<FlowStoreState>()((set, get) => {
     canUndo: false,
     canRedo: false,
     validationIssues: [],
+    validationWarnings: [],
+    runProgress: null,
+    edgeValues: {},
+    runHistory: [],
+    workflowDescriptions: {},
+    commandPaletteOpen: false,
+    installPromptAvailable: false,
     executionPhase: 'idle',
     nodeStatuses: {},
     nodeOutputs: {},
@@ -354,6 +473,19 @@ export const useFlowStore = create<FlowStoreState>()((set, get) => {
       }
 
       set({ workflowIndex: index, theme, isBootstrapping: false });
+
+      // Load auxiliary metadata (descriptions, run history) in the background.
+      void (async () => {
+        const [descriptions, historyMap] = await Promise.all([
+          loadDescriptions(),
+          loadRunHistory(),
+        ]);
+        const activeId = get().activeWorkflowId;
+        set({
+          workflowDescriptions: descriptions,
+          runHistory: activeId ? (historyMap[activeId] ?? []) : [],
+        });
+      })();
       await setMeta('theme', theme).catch(() => undefined);
     },
 
@@ -380,6 +512,19 @@ export const useFlowStore = create<FlowStoreState>()((set, get) => {
       await setMeta('activeWorkflowId', workflow.id).catch(() => undefined);
       loadGraphIntoEditor(workflow);
       get().pushToast('success', `Created workflow "${name}".`);
+    },
+
+    setWorkflowDescription: async (id, description) => {
+      const trimmed = description.trim();
+      const next = { ...get().workflowDescriptions };
+      if (trimmed) next[id] = trimmed;
+      else delete next[id];
+      set({ workflowDescriptions: next });
+      try {
+        await setMeta('descriptions', next);
+      } catch {
+        get().pushToast('error', 'Could not save the description.');
+      }
     },
 
     renameWorkflow: async (id, name) => {
@@ -680,6 +825,149 @@ export const useFlowStore = create<FlowStoreState>()((set, get) => {
       );
     },
 
+    autoLayout: () => {
+      const { nodes, edges } = get();
+      if (nodes.length === 0) return;
+      // Depth = longest path from any source (Kahn's algorithm).
+      const depth = new Map<string, number>(nodes.map((n) => [n.id, 0]));
+      const inDegree = new Map<string, number>(nodes.map((n) => [n.id, 0]));
+      const outgoing = new Map<string, string[]>();
+      for (const edge of edges) {
+        if (!depth.has(edge.source) || !depth.has(edge.target)) continue;
+        outgoing.set(edge.source, [...(outgoing.get(edge.source) ?? []), edge.target]);
+        inDegree.set(edge.target, (inDegree.get(edge.target) ?? 0) + 1);
+      }
+      const queue = nodes.filter((n) => (inDegree.get(n.id) ?? 0) === 0).map((n) => n.id);
+      const seen = new Set(queue);
+      while (queue.length > 0) {
+        const id = queue.shift() as string;
+        for (const next of outgoing.get(id) ?? []) {
+          const d = Math.max(depth.get(next) ?? 0, (depth.get(id) ?? 0) + 1);
+          depth.set(next, d);
+          inDegree.set(next, (inDegree.get(next) ?? 1) - 1);
+          if ((inDegree.get(next) ?? 0) <= 0 && !seen.has(next)) {
+            seen.add(next);
+            queue.push(next);
+          }
+        }
+      }
+      const layers = new Map<number, AppNode[]>();
+      for (const node of nodes) {
+        const d = depth.get(node.id) ?? 0;
+        layers.set(d, [...(layers.get(d) ?? []), node]);
+      }
+      const positioned = new Map<string, { x: number; y: number }>();
+      for (const [d, layerNodes] of [...layers.entries()].sort((a, b) => a[0] - b[0])) {
+        layerNodes.forEach((node, i) => {
+          positioned.set(node.id, { x: 80 + d * 300, y: 80 + i * 180 });
+        });
+      }
+      commitGraph(
+        nodes.map((n) => ({ ...n, position: positioned.get(n.id) ?? n.position })),
+        edges,
+      );
+      get().pushToast('success', 'Canvas arranged automatically.');
+    },
+
+    copySelectedNodes: () => {
+      const { nodes, edges } = get();
+      const selected = nodes.filter((n) => n.selected);
+      if (selected.length === 0) return;
+      const idSet = new Set(selected.map((n) => n.id));
+      clipboard = {
+        nodes: selected.map((n) => ({
+          ...n,
+          position: { ...n.position },
+          data: { ...n.data, config: { ...n.data.config } },
+        })),
+        edges: edges.filter((e) => idSet.has(e.source) && idSet.has(e.target)),
+      };
+      get().pushToast('info', `Copied ${selected.length} node(s). Press Ctrl+V to paste.`);
+    },
+
+    pasteNodes: () => {
+      if (!clipboard || clipboard.nodes.length === 0) return;
+      const idMap = new Map<string, string>();
+      const clones: AppNode[] = clipboard.nodes.map((n) => {
+        const cloneId = newId('node');
+        idMap.set(n.id, cloneId);
+        return {
+          ...n,
+          id: cloneId,
+          position: { x: n.position.x + 48, y: n.position.y + 48 },
+          data: { ...n.data, config: { ...n.data.config } },
+          selected: true,
+        };
+      });
+      const clonedEdges: AppEdge[] = clipboard.edges.flatMap((e) => {
+        const newSource = idMap.get(e.source);
+        const newTarget = idMap.get(e.target);
+        return newSource && newTarget
+          ? [{ ...e, id: newId('edge'), source: newSource, target: newTarget, selected: false }]
+          : [];
+      });
+      const nodes = [...get().nodes.map((n) => ({ ...n, selected: false })), ...clones];
+      commitGraph(nodes, [...get().edges, ...clonedEdges]);
+      set({ selectedNodeId: clones[clones.length - 1].id });
+    },
+
+    alignSelected: (direction) => {
+      const selected = get().nodes.filter((n) => n.selected);
+      if (selected.length < 2) {
+        get().pushToast('info', 'Select at least two nodes to align.');
+        return;
+      }
+      const xs = selected.map((n) => n.position.x);
+      const ys = selected.map((n) => n.position.y);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+      const midX = (minX + maxX) / 2;
+      const midY = (minY + maxY) / 2;
+      const aligned = new Map<string, { x: number; y: number }>();
+      for (const node of selected) {
+        const { x, y } = node.position;
+        switch (direction) {
+          case 'left': aligned.set(node.id, { x: minX, y }); break;
+          case 'right': aligned.set(node.id, { x: maxX, y }); break;
+          case 'top': aligned.set(node.id, { x, y: minY }); break;
+          case 'bottom': aligned.set(node.id, { x, y: maxY }); break;
+          case 'centerH': aligned.set(node.id, { x: midX, y }); break;
+          case 'centerV': aligned.set(node.id, { x, y: midY }); break;
+        }
+      }
+      commitGraph(
+        get().nodes.map((n) => {
+          const p = aligned.get(n.id);
+          return p ? { ...n, position: p } : n;
+        }),
+        get().edges,
+      );
+    },
+
+    nudgeSelected: (dx, dy) => {
+      const selected = get().nodes.filter((n) => n.selected);
+      if (selected.length === 0) return;
+      const ids = new Set(selected.map((n) => n.id));
+      // Nudging is a transient move — don't spam history.
+      set({
+        nodes: get().nodes.map((n) =>
+          ids.has(n.id) ? { ...n, position: { x: n.position.x + dx, y: n.position.y + dy } } : n,
+        ),
+      });
+      scheduleAutosave();
+    },
+
+    selectAllNodes: () => {
+      const nodes = get().nodes;
+      if (nodes.length === 0) return;
+      set({
+        nodes: nodes.map((n) => ({ ...n, selected: true })),
+        selectedNodeId: nodes[nodes.length - 1].id,
+      });
+    },
+
     updateNodeConfig: (nodeId, patch) => {
       const nodes = get().nodes.map((n) =>
         n.id === nodeId ? { ...n, data: { ...n.data, config: { ...n.data.config, ...patch } } } : n,
@@ -700,14 +988,17 @@ export const useFlowStore = create<FlowStoreState>()((set, get) => {
       if (next === history) return;
       history = next;
       const { nodes, edges } = currentSnapshot(history);
-      const issues = validateWorkflow(appGraphToWorkflowGraph(nodes, edges));
+      const { errors, warnings } = splitIssues(
+        validateWorkflow(appGraphToWorkflowGraph(nodes, edges)),
+      );
       set({
         nodes,
         edges,
         selectedNodeId: null,
         canUndo: historyCanUndo(history),
         canRedo: historyCanRedo(history),
-        validationIssues: issues,
+        validationIssues: errors,
+        validationWarnings: warnings,
         nodeStatuses: {},
         nodeOutputs: {},
         executionLog: [],
@@ -721,14 +1012,17 @@ export const useFlowStore = create<FlowStoreState>()((set, get) => {
       if (next === history) return;
       history = next;
       const { nodes, edges } = currentSnapshot(history);
-      const issues = validateWorkflow(appGraphToWorkflowGraph(nodes, edges));
+      const { errors, warnings } = splitIssues(
+        validateWorkflow(appGraphToWorkflowGraph(nodes, edges)),
+      );
       set({
         nodes,
         edges,
         selectedNodeId: null,
         canUndo: historyCanUndo(history),
         canRedo: historyCanRedo(history),
-        validationIssues: issues,
+        validationIssues: errors,
+        validationWarnings: warnings,
         nodeStatuses: {},
         nodeOutputs: {},
         executionLog: [],
@@ -758,13 +1052,18 @@ export const useFlowStore = create<FlowStoreState>()((set, get) => {
       }
 
       abortController = new AbortController();
+      const totalNodes = nodes.length;
       set({
         executionPhase: 'running',
         nodeStatuses: Object.fromEntries(nodes.map((n) => [n.id, 'idle' as NodeStatus])),
         nodeOutputs: {},
         executionLog: [],
         lastRunSummary: null,
+        runProgress: { done: 0, total: totalNodes },
+        edgeValues: {},
       });
+      const runStartedAt = new Date().toISOString();
+      let finishedCount = 0;
 
       try {
         const result = await executeWorkflow(graph, {
@@ -775,12 +1074,14 @@ export const useFlowStore = create<FlowStoreState>()((set, get) => {
             if (nodeResult === null) {
               set((s) => ({ nodeStatuses: { ...s.nodeStatuses, [nodeId]: 'running' } }));
             } else {
+              finishedCount += 1;
               set((s) => ({
                 nodeStatuses: { ...s.nodeStatuses, [nodeId]: nodeResult.status },
                 nodeOutputs:
                   Object.keys(nodeResult.outputs).length > 0
                     ? { ...s.nodeOutputs, [nodeId]: nodeResult.outputs }
                     : s.nodeOutputs,
+                runProgress: { done: finishedCount, total: totalNodes },
               }));
             }
           },
@@ -792,18 +1093,49 @@ export const useFlowStore = create<FlowStoreState>()((set, get) => {
           statuses[nodeId] = r.status;
           if (Object.keys(r.outputs).length > 0) outputs[nodeId] = r.outputs;
         }
+        const edgeValues: Record<string, string> = {};
+        for (const [edgeId, value] of Object.entries(result.edgeValues)) {
+          const text = typeof value === 'string' ? value : String(value);
+          edgeValues[edgeId] = text.length > 48 ? `${text.slice(0, 47)}…` : text;
+        }
         set({
           executionPhase: 'idle',
           nodeStatuses: statuses,
           nodeOutputs: outputs,
           executionLog: result.log,
+          runProgress: null,
+          edgeValues,
           lastRunSummary: {
             hasErrors: result.hasErrors,
             aborted: result.aborted,
             at: new Date().toISOString(),
           },
         });
-        if (result.aborted) {
+        // Record into persisted run history.
+        const activeId = get().activeWorkflowId;
+        if (activeId) {
+          const record: RunRecord = {
+            runId: result.runId,
+            startedAt: runStartedAt,
+            nodeCount: totalNodes,
+            successCount: Object.values(result.nodeResults).filter((r) => r.status === 'success').length,
+            errorCount: Object.values(result.nodeResults).filter((r) => r.status === 'error').length,
+            skippedCount: Object.values(result.nodeResults).filter((r) => r.status === 'skipped').length,
+            totalDurationMs: Math.round(result.totalDurationMs),
+            aborted: result.aborted,
+            timedOut: result.timedOut,
+          };
+          const next = [record, ...get().runHistory].slice(0, RUN_HISTORY_LIMIT);
+          set({ runHistory: next });
+          void (async () => {
+            const all = await loadRunHistory();
+            all[activeId] = next;
+            await persistRunHistory(all);
+          })();
+        }
+        if (result.timedOut) {
+          get().pushToast('error', 'Run timed out.');
+        } else if (result.aborted) {
           get().pushToast('info', 'Run stopped.');
         } else if (result.hasErrors) {
           get().pushToast('error', 'Run finished with errors — see the log.');
@@ -811,7 +1143,7 @@ export const useFlowStore = create<FlowStoreState>()((set, get) => {
           get().pushToast('success', 'Run completed successfully.');
         }
       } catch (err) {
-        set({ executionPhase: 'idle' });
+        set({ executionPhase: 'idle', runProgress: null });
         get().pushToast(
           'error',
           `Run failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -835,7 +1167,29 @@ export const useFlowStore = create<FlowStoreState>()((set, get) => {
         nodeOutputs: {},
         executionLog: [],
         lastRunSummary: null,
+        runProgress: null,
+        edgeValues: {},
       });
+    },
+
+    exportExecutionLog: () => {
+      const { executionLog, activeWorkflowName } = get();
+      if (executionLog.length === 0) {
+        get().pushToast('info', 'The execution log is empty.');
+        return;
+      }
+      const blob = new Blob([JSON.stringify(executionLog, null, 2)], {
+        type: 'application/json',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(activeWorkflowName || 'workflow').replace(/[^a-z0-9-_]+/gi, '_')}-log.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      get().pushToast('success', 'Execution log exported.');
     },
 
     // --- ui ---
@@ -873,5 +1227,16 @@ export const useFlowStore = create<FlowStoreState>()((set, get) => {
     setShortcutsOpen: (open) => set({ shortcutsOpen: open }),
     setWorkflowsDialogOpen: (open) => set({ workflowsDialogOpen: open }),
     setConnectDialogOpen: (open) => set({ connectDialogOpen: open }),
+    setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
+    setInstallPromptAvailable: (available) => set({ installPromptAvailable: available }),
+    installApp: async () => {
+      if (!installPromptEvent) return;
+      try {
+        await installPromptEvent.prompt();
+      } finally {
+        installPromptEvent = null;
+        set({ installPromptAvailable: false });
+      }
+    },
   };
 });

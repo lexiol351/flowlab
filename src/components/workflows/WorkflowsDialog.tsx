@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, JSX } from 'react';
 import { getExampleWorkflows, useFlowStore } from '../../lib/store/useFlowStore.ts';
+import type { RunRecord } from '../../lib/store/useFlowStore.ts';
 import { ConfirmDialog } from '../ui/ConfirmDialog.tsx';
 import '../panels/panels.css';
 
@@ -16,9 +17,15 @@ function WorkflowsDialogContent({ onClose }: { onClose: () => void }): JSX.Eleme
   const importWorkflow = useFlowStore((s) => s.importWorkflow);
   const exportWorkflow = useFlowStore((s) => s.exportWorkflow);
 
+  const workflowDescriptions = useFlowStore((s) => s.workflowDescriptions);
+  const setWorkflowDescription = useFlowStore((s) => s.setWorkflowDescription);
+  const runHistory = useFlowStore((s) => s.runHistory);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [describingId, setDescribingId] = useState<string | null>(null);
+  const [descriptionValue, setDescriptionValue] = useState('');
   const importInputRef = useRef<HTMLInputElement>(null);
 
   const startRename = (id: string, currentName: string): void => {
@@ -77,6 +84,16 @@ function WorkflowsDialogContent({ onClose }: { onClose: () => void }): JSX.Eleme
         <div className="fl-dialog-body">
           <section aria-label="Your workflows">
             <h3 className="fl-section-title">Your workflows</h3>
+            <input
+              type="search"
+              className="fl-input"
+              data-testid="workflow-search"
+              aria-label="Search workflows"
+              placeholder="Search workflows…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{ marginBottom: 8 }}
+            />
             <div className="fl-btn-row" style={{ marginBottom: 8 }}>
               <button
                 type="button"
@@ -109,8 +126,18 @@ function WorkflowsDialogContent({ onClose }: { onClose: () => void }): JSX.Eleme
               />
             </div>
             <ul className="fl-list">
-              {workflowIndex.map((entry) => {
+              {workflowIndex
+                .filter((entry) => {
+                  const q = searchQuery.trim().toLowerCase();
+                  if (!q) return true;
+                  const desc = workflowDescriptions[entry.id] ?? '';
+                  return (
+                    entry.name.toLowerCase().includes(q) || desc.toLowerCase().includes(q)
+                  );
+                })
+                .map((entry) => {
                 const isActive = entry.id === activeWorkflowId;
+                const description = workflowDescriptions[entry.id] ?? '';
                 return (
                   <li
                     key={entry.id}
@@ -149,7 +176,49 @@ function WorkflowsDialogContent({ onClose }: { onClose: () => void }): JSX.Eleme
                         </span>
                       </button>
                     )}
+                    {description && describingId !== entry.id && (
+                      <div className="fl-item-desc" data-testid="workflow-description">
+                        {description}
+                      </div>
+                    )}
+                    {describingId === entry.id && (
+                      <textarea
+                        autoFocus
+                        className="fl-input"
+                        data-testid="description-input"
+                        aria-label="Workflow description"
+                        rows={2}
+                        value={descriptionValue}
+                        placeholder="Describe what this workflow does…"
+                        onChange={(e) => setDescriptionValue(e.target.value)}
+                        onBlur={() => {
+                          void setWorkflowDescription(entry.id, descriptionValue);
+                          setDescribingId(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            void setWorkflowDescription(entry.id, descriptionValue);
+                            setDescribingId(null);
+                          }
+                          if (e.key === 'Escape') setDescribingId(null);
+                        }}
+                      />
+                    )}
                     <div className="fl-item-actions">
+                      <button
+                        type="button"
+                        className="fl-icon-btn"
+                        data-testid="describe-workflow-button"
+                        aria-label={`Edit description for workflow ${entry.name}`}
+                        title="Edit description"
+                        onClick={() => {
+                          setDescribingId(entry.id);
+                          setDescriptionValue(description);
+                        }}
+                      >
+                        Describe
+                      </button>
                       <button
                         type="button"
                         className="fl-icon-btn"
@@ -193,6 +262,38 @@ function WorkflowsDialogContent({ onClose }: { onClose: () => void }): JSX.Eleme
                 );
               })}
             </ul>
+          </section>
+
+          <section aria-label="Run history">
+            <h3 className="fl-section-title">Recent runs</h3>
+            {runHistory.length === 0 ? (
+              <p className="fl-muted" data-testid="run-history-empty">
+                No runs yet for this workflow.
+              </p>
+            ) : (
+              <ul className="fl-list" data-testid="run-history">
+                {runHistory.map((run: RunRecord) => (
+                  <li key={run.runId} className="fl-list-item">
+                    <div className="fl-item-main">
+                      <span className="fl-item-name">
+                        {new Date(run.startedAt).toLocaleString()}
+                      </span>
+                      <span className="fl-item-desc">
+                        {run.timedOut
+                          ? 'timed out'
+                          : run.aborted
+                            ? 'stopped'
+                            : run.errorCount > 0
+                              ? `${run.errorCount} error(s)`
+                              : 'success'}{' '}
+                        · {run.successCount}/{run.nodeCount} nodes ·{' '}
+                        {run.totalDurationMs} ms
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
 
           <section aria-label="Example workflows">

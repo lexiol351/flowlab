@@ -692,3 +692,106 @@ describe('execution engine', () => {
     }
   });
 });
+
+describe('execution timeout', () => {
+  it('aborts runs that exceed timeoutMs', async () => {
+    const a = node('textInput', { value: 'x' }, 'a');
+    const d = node('delay', { ms: 5000 }, 'd');
+    const o = node('output', {}, 'o');
+    const g = graph(
+      [a, d, o],
+      [edge(a.id, 'value', d.id, 'in'), edge(d.id, 'out', o.id, 'in')],
+    );
+    const result = await executeWorkflow(g, { timeoutMs: 120 });
+    expect(result.timedOut).toBe(true);
+    expect(result.aborted).toBe(true);
+    expect(result.log.some((e) => e.message.includes('timed out'))).toBe(true);
+    expect(result.nodeResults['o']?.status).toBe('skipped');
+  });
+
+  it('does not time out fast runs', async () => {
+    const { g } = simpleTextFlow();
+    const result = await executeWorkflow(g, { timeoutMs: 5000 });
+    expect(result.timedOut).toBe(false);
+    expect(result.totalDurationMs).toBeGreaterThanOrEqual(0);
+    expect(result.edgeValues).toBeDefined();
+  });
+
+  it('timeoutMs: 0 disables the timeout', async () => {
+    const { g } = simpleTextFlow();
+    const result = await executeWorkflow(g, { timeoutMs: 0 });
+    expect(result.timedOut).toBe(false);
+  });
+});
+
+describe('dead-end warnings', () => {
+  it('warns about nodes whose outputs go nowhere', () => {
+    const a = node('textInput', { value: 'x' }, 'a');
+    const t = node('textTransform', { operation: 'uppercase' }, 't');
+    const g = graph([a, t], [edge(a.id, 'value', t.id, 'in')]);
+    const issues = validateWorkflow(g);
+    const warnings = issues.filter((i) => i.severity === 'warning');
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].code).toBe('dead-end');
+    expect(warnings[0].nodeId).toBe('t');
+    // Warnings don't block execution.
+    expect(issues.filter((i) => i.severity !== 'warning')).toEqual([]);
+  });
+
+  it('does not warn for output and note sinks', () => {
+    const a = node('textInput', { value: 'x' }, 'a');
+    const o = node('output', {}, 'o');
+    const n = node('note', { text: 'hi' }, 'n');
+    const g = graph([a, o, n], [edge(a.id, 'value', o.id, 'in')]);
+    expect(validateWorkflow(g).filter((i) => i.severity === 'warning')).toEqual([]);
+  });
+
+  it('assertValidWorkflow ignores warnings', () => {
+    const a = node('textInput', { value: 'x' }, 'a');
+    const t = node('textTransform', { operation: 'uppercase' }, 't');
+    const g = graph([a, t], [edge(a.id, 'value', t.id, 'in')]);
+    expect(() => assertValidWorkflow(g)).not.toThrow();
+  });
+});
+
+describe('async node execution', () => {
+  it('awaits async execute functions', async () => {
+    const a = node('textInput', { value: 'x' }, 'a');
+    const d = node('delay', { ms: 5 }, 'd');
+    const o = node('output', {}, 'o');
+    const g = graph(
+      [a, d, o],
+      [edge(a.id, 'value', d.id, 'in'), edge(d.id, 'out', o.id, 'in')],
+    );
+    const result = await executeWorkflow(g);
+    expect(result.nodeResults['d']?.status).toBe('success');
+    expect(result.nodeResults['d']?.outputs['out']).toBe('x');
+  });
+
+  it('records edge values for taken edges', async () => {
+    const { g } = simpleTextFlow();
+    const result = await executeWorkflow(g);
+    const values = Object.values(result.edgeValues);
+    expect(values.length).toBeGreaterThan(0);
+    expect(values).toContain('hello');
+  });
+
+  it('switch routes through exactly one branch', async () => {
+    const inp = node('textInput', { value: 'b' }, 'inp');
+    const sw = node('switch', { mode: 'text', case1Value: 'a', case2Value: 'b' }, 'sw');
+    const o1 = node('output', {}, 'o1');
+    const o2 = node('output', {}, 'o2');
+    const g = graph(
+      [inp, sw, o1, o2],
+      [
+        edge(inp.id, 'value', sw.id, 'in'),
+        edge(sw.id, 'case1', o1.id, 'in'),
+        edge(sw.id, 'case2', o2.id, 'in'),
+      ],
+    );
+    const result = await executeWorkflow(g);
+    expect(result.nodeResults['o1']?.status).toBe('skipped');
+    expect(result.nodeResults['o2']?.status).toBe('success');
+    expect(result.nodeResults['o2']?.outputs['in']).toBe('b');
+  });
+});

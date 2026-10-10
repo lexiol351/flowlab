@@ -3,6 +3,7 @@ import type { DragEvent, KeyboardEvent } from 'react';
 import type { JSX } from 'react';
 import { getAllNodeDefinitions } from '../../lib/workflow/nodeRegistry.ts';
 import type { NodeDefinition } from '../../lib/workflow/nodeRegistry.ts';
+import { NODE_CATEGORIES } from '../../lib/workflow/types.ts';
 import type { NodeTypeId } from '../../lib/workflow/types.ts';
 
 /** Window event used to add a node from the palette to the canvas. */
@@ -13,7 +14,14 @@ export function dispatchAddNode(type: NodeTypeId): void {
   window.dispatchEvent(new CustomEvent(ADD_NODE_EVENT, { detail: { type } }));
 }
 
-const CATEGORIES = ['Input', 'Transform', 'Logic', 'Output'] as const;
+/** Accent color per category, shared with node cards via CSS. */
+export const CATEGORY_COLORS: Record<string, string> = {
+  Input: '#3b82f6',
+  Transform: '#8b5cf6',
+  Logic: '#f59e0b',
+  Utility: '#14b8a6',
+  Output: '#22c55e',
+};
 
 function PaletteItem({ def }: { def: NodeDefinition }): JSX.Element {
   const onDragStart = (event: DragEvent<HTMLDivElement>): void => {
@@ -33,6 +41,8 @@ function PaletteItem({ def }: { def: NodeDefinition }): JSX.Element {
       className="palette-item"
       data-testid="palette-item"
       data-node-type={def.type}
+      data-category={def.category}
+      style={{ ['--cat-color' as string]: CATEGORY_COLORS[def.category] }}
       role="button"
       tabIndex={0}
       aria-label={`Add ${def.title} node`}
@@ -88,7 +98,7 @@ export function NodePalette({ open }: NodePaletteProps): JSX.Element {
         {filtered.length === 0 && (
           <p className="palette-empty">No nodes match your search.</p>
         )}
-        {CATEGORIES.map((category) => {
+        {NODE_CATEGORIES.map((category) => {
           const items = filtered.filter((def) => def.category === category);
           if (items.length === 0) return null;
           return (
