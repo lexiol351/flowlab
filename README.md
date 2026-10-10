@@ -6,6 +6,7 @@ n8n and Node-RED — with a **real workflow execution engine**, not a mockup.
 **Live demo:** https://lexiol351.github.io/flowlab/
 
 ![FlowLab editor](docs/screenshots/editor-dark.png)
+![FlowLab Switch example with new node types](docs/screenshots/editor-v2.png)
 
 ## Features
 
