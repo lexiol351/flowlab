@@ -1,0 +1,542 @@
+/* FlowLab panels & dialogs — self-contained styles.
+   Uses theme CSS variables when defined elsewhere, with fallbacks. */
+
+.fl-panel {
+  background: var(--bg-panel, #151a24);
+  border: 1px solid var(--border, #2a3344);
+  border-radius: 10px;
+  color: var(--text, #e8ecf4);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.fl-panel-header {
+  align-items: center;
+  border-bottom: 1px solid var(--border, #2a3344);
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 10px 12px;
+}
+
+.fl-panel-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.fl-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.fl-section-title {
+  color: var(--text-muted, #9aa4b8);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  margin: 0 0 6px;
+  text-transform: uppercase;
+}
+
+.fl-divider {
+  border: none;
+  border-top: 1px solid var(--border, #2a3344);
+  margin: 2px 0;
+}
+
+/* ---------- fields ---------- */
+
+.fl-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.fl-field-label {
+  color: var(--text, #e8ecf4);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.fl-field-hint {
+  color: var(--text-muted, #9aa4b8);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.fl-input,
+.fl-textarea,
+.fl-select {
+  background: var(--bg, #0e1219);
+  border: 1px solid var(--border, #2a3344);
+  border-radius: 6px;
+  color: var(--text, #e8ecf4);
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 9px;
+  width: 100%;
+}
+
+.fl-textarea {
+  resize: vertical;
+}
+
+.fl-input:focus-visible,
+.fl-textarea:focus-visible,
+.fl-select:focus-visible {
+  border-color: var(--accent, #4f8cff);
+  outline: 2px solid var(--accent, #4f8cff);
+  outline-offset: 1px;
+}
+
+.fl-checkrow {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.fl-checkbox {
+  accent-color: var(--accent, #4f8cff);
+  height: 16px;
+  width: 16px;
+}
+
+.fl-checkbox:focus-visible {
+  outline: 2px solid var(--accent, #4f8cff);
+  outline-offset: 2px;
+}
+
+/* ---------- buttons ---------- */
+
+.fl-btn {
+  background: var(--bg, #0e1219);
+  border: 1px solid var(--border, #2a3344);
+  border-radius: 6px;
+  color: var(--text, #e8ecf4);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 12px;
+}
+
+.fl-btn:hover:not(:disabled) {
+  border-color: var(--accent, #4f8cff);
+}
+
+.fl-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.fl-btn:focus-visible {
+  outline: 2px solid var(--accent, #4f8cff);
+  outline-offset: 2px;
+}
+
+.fl-btn-primary {
+  background: var(--accent, #4f8cff);
+  border-color: var(--accent, #4f8cff);
+  color: #fff;
+  font-weight: 600;
+}
+
+.fl-btn-primary:hover:not(:disabled) {
+  border-color: var(--accent, #4f8cff);
+  filter: brightness(1.1);
+}
+
+.fl-btn-danger {
+  background: transparent;
+  border-color: var(--error, #e5534b);
+  color: var(--error, #e5534b);
+}
+
+.fl-btn-danger:hover:not(:disabled) {
+  background: var(--error, #e5534b);
+  border-color: var(--error, #e5534b);
+  color: #fff;
+}
+
+.fl-btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-muted, #9aa4b8);
+}
+
+.fl-btn-ghost:hover:not(:disabled) {
+  border-color: var(--border, #2a3344);
+  color: var(--text, #e8ecf4);
+}
+
+.fl-btn-sm {
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+.fl-btn-row {
+  display: flex;
+  gap: 8px;
+}
+
+/* ---------- badges ---------- */
+
+.fl-badge {
+  border-radius: 999px;
+  display: inline-block;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 10px;
+  text-transform: capitalize;
+}
+
+.fl-badge-idle {
+  background: var(--bg, #0e1219);
+  border: 1px solid var(--border, #2a3344);
+  color: var(--text-muted, #9aa4b8);
+}
+
+.fl-badge-running {
+  background: rgba(79, 140, 255, 0.15);
+  border: 1px solid var(--info, #4f8cff);
+  color: var(--info, #4f8cff);
+}
+
+.fl-badge-success {
+  background: rgba(63, 185, 80, 0.15);
+  border: 1px solid var(--success, #3fb950);
+  color: var(--success, #3fb950);
+}
+
+.fl-badge-error {
+  background: rgba(229, 83, 75, 0.15);
+  border: 1px solid var(--error, #e5534b);
+  color: var(--error, #e5534b);
+}
+
+.fl-badge-skipped {
+  background: rgba(210, 153, 34, 0.15);
+  border: 1px solid var(--warning, #d29922);
+  color: var(--warning, #d29922);
+}
+
+/* ---------- errors / lists ---------- */
+
+.fl-error-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.fl-error-item {
+  background: rgba(229, 83, 75, 0.1);
+  border: 1px solid var(--error, #e5534b);
+  border-radius: 6px;
+  color: var(--error, #e5534b);
+  font-size: 12.5px;
+  padding: 6px 9px;
+}
+
+.fl-kv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fl-kv-row {
+  display: flex;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+.fl-kv-key {
+  color: var(--accent, #4f8cff);
+  font-family: ui-monospace, monospace;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.fl-kv-value {
+  overflow-wrap: anywhere;
+}
+
+.fl-kv-type {
+  color: var(--text-muted, #9aa4b8);
+  font-size: 11.5px;
+}
+
+.fl-empty {
+  align-items: center;
+  color: var(--text-muted, #9aa4b8);
+  display: flex;
+  flex: 1;
+  font-size: 13px;
+  justify-content: center;
+  padding: 24px 12px;
+  text-align: center;
+}
+
+/* ---------- execution log ---------- */
+
+.fl-log {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.fl-log-entry {
+  align-items: baseline;
+  border-radius: 4px;
+  display: flex;
+  font-size: 12.5px;
+  gap: 8px;
+  padding: 3px 6px;
+}
+
+.fl-log-time {
+  color: var(--text-muted, #9aa4b8);
+  font-family: ui-monospace, monospace;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.fl-log-msg {
+  overflow-wrap: anywhere;
+}
+
+.fl-log-info .fl-log-msg {
+  color: var(--text, #e8ecf4);
+}
+
+.fl-log-warn .fl-log-msg {
+  color: var(--warning, #d29922);
+}
+
+.fl-log-error .fl-log-msg {
+  color: var(--error, #e5534b);
+}
+
+.fl-log-summary {
+  border-top: 1px solid var(--border, #2a3344);
+  color: var(--text-muted, #9aa4b8);
+  font-size: 12px;
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
+/* ---------- dialogs ---------- */
+
+.fl-overlay {
+  align-items: center;
+  background: rgba(4, 6, 10, 0.6);
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  left: 0;
+  padding: 16px;
+  position: fixed;
+  right: 0;
+  top: 0;
+  z-index: 100;
+}
+
+.fl-dialog {
+  background: var(--bg-panel, #151a24);
+  border: 1px solid var(--border, #2a3344);
+  border-radius: 12px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
+  color: var(--text, #e8ecf4);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 64px);
+  max-width: 560px;
+  width: 100%;
+}
+
+.fl-dialog-header {
+  align-items: center;
+  border-bottom: 1px solid var(--border, #2a3344);
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 16px;
+}
+
+.fl-dialog-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.fl-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.fl-dialog-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 0 16px 16px;
+}
+
+.fl-dialog-text {
+  font-size: 13.5px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.fl-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.fl-list-item {
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  display: flex;
+  gap: 8px;
+  padding: 6px 8px;
+}
+
+.fl-list-item:hover {
+  background: var(--bg, #0e1219);
+}
+
+.fl-list-item[data-active='true'] {
+  border-color: var(--accent, #4f8cff);
+}
+
+.fl-item-main {
+  background: none;
+  border: none;
+  color: var(--text, #e8ecf4);
+  cursor: pointer;
+  flex: 1;
+  font: inherit;
+  min-width: 0;
+  padding: 2px;
+  text-align: left;
+}
+
+.fl-item-main:focus-visible {
+  outline: 2px solid var(--accent, #4f8cff);
+  outline-offset: 2px;
+}
+
+.fl-item-name {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fl-item-desc {
+  color: var(--text-muted, #9aa4b8);
+  display: block;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fl-item-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.fl-icon-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-muted, #9aa4b8);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 7px;
+  white-space: nowrap;
+}
+
+.fl-icon-btn:hover:not(:disabled) {
+  border-color: var(--border, #2a3344);
+  color: var(--text, #e8ecf4);
+}
+
+.fl-icon-btn:focus-visible {
+  outline: 2px solid var(--accent, #4f8cff);
+  outline-offset: 2px;
+}
+
+.fl-icon-btn-danger:hover:not(:disabled) {
+  border-color: var(--error, #e5534b);
+  color: var(--error, #e5534b);
+}
+
+.fl-form-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.fl-validation {
+  border-radius: 6px;
+  font-size: 12.5px;
+  padding: 8px 10px;
+}
+
+.fl-validation-ok {
+  background: rgba(63, 185, 80, 0.12);
+  border: 1px solid var(--success, #3fb950);
+  color: var(--success, #3fb950);
+}
+
+.fl-validation-error {
+  background: rgba(229, 83, 75, 0.12);
+  border: 1px solid var(--error, #e5534b);
+  color: var(--error, #e5534b);
+}
+
+.fl-validation-idle {
+  background: var(--bg, #0e1219);
+  border: 1px solid var(--border, #2a3344);
+  color: var(--text-muted, #9aa4b8);
+}
+
+.fl-hidden-input {
+  display: none;
+}
+
+/* ---------- motion ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .fl-overlay,
+  .fl-dialog,
+  .fl-btn,
+  .fl-list-item {
+    transition: none;
+    animation: none;
+  }
+}
