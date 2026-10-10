@@ -215,7 +215,7 @@ describe('new node types', () => {
 
   it('httpRequest reports aborts cleanly', async () => {
     const realFetch = globalThis.fetch;
-    globalThis.fetch = ((_url: string, init?: RequestInit) => {
+    globalThis.fetch = ((_url: string, _init?: RequestInit) => {
       const err = new DOMException('aborted', 'AbortError');
       return Promise.reject(err);
     }) as typeof fetch;
