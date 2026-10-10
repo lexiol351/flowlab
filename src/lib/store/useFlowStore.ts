@@ -625,9 +625,10 @@ export const useFlowStore = create<FlowStoreState>()((set, get) => {
         id: newId('node'),
         type: 'flowNode',
         position: { ...position },
+        selected: true,
         data: { nodeType: type, config: def.defaultData() },
       };
-      const nodes = [...get().nodes, node];
+      const nodes = [...get().nodes.map((n) => ({ ...n, selected: false })), node];
       commitGraph(nodes, get().edges);
       set({ selectedNodeId: node.id });
     },
@@ -768,6 +769,8 @@ export const useFlowStore = create<FlowStoreState>()((set, get) => {
       try {
         const result = await executeWorkflow(graph, {
           signal: abortController.signal,
+          // NOTE: do not reference `result` here — this callback fires while
+          // executeWorkflow is still running, before `result` is assigned.
           onNodeUpdate: (nodeId, nodeResult) => {
             if (nodeResult === null) {
               set((s) => ({ nodeStatuses: { ...s.nodeStatuses, [nodeId]: 'running' } }));
@@ -778,7 +781,6 @@ export const useFlowStore = create<FlowStoreState>()((set, get) => {
                   Object.keys(nodeResult.outputs).length > 0
                     ? { ...s.nodeOutputs, [nodeId]: nodeResult.outputs }
                     : s.nodeOutputs,
-                executionLog: result.log,
               }));
             }
           },

@@ -456,10 +456,12 @@ const outputDef: NodeDefinition = {
   configSchema: z.object({}).passthrough() as unknown as z.ZodType<Record<string, unknown>>,
   summarize: () => 'displays value',
   execute: (inputs) => {
-    if (inputs['in'] === undefined) {
+    const value = inputs['in'];
+    if (value === undefined) {
       throw new NodeExecutionError('Output received no input value.');
     }
-    return { outputs: {} };
+    // Echo the received value so the UI (and tests) can display it.
+    return { outputs: { in: value } };
   },
 };
 

@@ -6,8 +6,9 @@ import {
   serializeWorkflow,
 } from './migrations.ts';
 import { WorkflowV1Schema } from './types.ts';
+import type { WorkflowV1 } from './types.ts';
 
-const VALID_V1 = {
+const VALID_V1: WorkflowV1 = {
   version: 1,
   id: 'wf-1',
   name: 'Test',

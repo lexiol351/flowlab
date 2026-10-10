@@ -70,7 +70,7 @@ describe('history', () => {
   });
 
   it('ignores identical consecutive snapshots', () => {
-    let h = createHistory(snap(['a']));
+    const h = createHistory(snap(['a']));
     const same = pushHistory(h, snap(['a']));
     expect(same).toBe(h);
     expect(canUndo(same)).toBe(false);

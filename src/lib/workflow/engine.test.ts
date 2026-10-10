@@ -184,6 +184,13 @@ describe('topological ordering', () => {
     expect(order.indexOf('c')).toBeLessThan(order.indexOf('m'));
   });
 
+  it('ignores edges referencing unknown nodes', () => {
+    const a = node('textInput', { value: 'x' }, 'a');
+    const g = graph([a], [edge(a.id, 'value', 'ghost', 'in')]);
+    const result = topologicalOrder(g);
+    expect(result.order).toEqual(['a']);
+  });
+
   it('reports the cycle when the graph is cyclic', () => {
     const a = node('textTransform', { operation: 'trim', text: '' }, 'a');
     const b = node('textTransform', { operation: 'trim', text: '' }, 'b');
@@ -309,6 +316,31 @@ describe('canConnect', () => {
     const g = graph([a, b], []);
     expect(
       canConnect(g, { source: 'a', sourceHandle: 'nope', target: 'b', targetHandle: 'in' }).ok,
+    ).toBe(false);
+  });
+
+  it('rejects connections involving unknown node types', () => {
+    const bad = {
+      ...node('textInput', { value: 'x' }, 'bad'),
+      type: 'teleport',
+    } as unknown as FlowNode;
+    const b = node('output', {}, 'b');
+    const g = graph([bad, b], []);
+    const check = canConnect(g, {
+      source: 'bad',
+      sourceHandle: 'value',
+      target: 'b',
+      targetHandle: 'in',
+    });
+    expect(check.ok).toBe(false);
+    expect(check.reason).toMatch(/unknown node type/i);
+  });
+
+  it('rejects connections to unknown nodes', () => {
+    const a = node('textInput', { value: 'x' }, 'a');
+    const g = graph([a], []);
+    expect(
+      canConnect(g, { source: 'a', sourceHandle: 'value', target: 'ghost', targetHandle: 'in' }).ok,
     ).toBe(false);
   });
 });
